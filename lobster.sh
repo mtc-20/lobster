@@ -25,8 +25,8 @@ command -v notify-send >/dev/null 2>&1 && notify="true" || notify="false" # chec
 send_notification() {
     [ "$json_output" = "true" ] && return
     if [ "$use_external_menu" = "false" ] || [ -z "$use_external_menu" ]; then
-        [ -z "$4" ] && printf "\33[2K\r\033[1;34m%s\n\033[0m" "$1" && return
-        [ -n "$4" ] && printf "\33[2K\r\033[1;34m%s - %s\n\033[0m" "$1" "$4" && return
+        [ -z "$4" ] && printf "\33[2K\r\033[1;34m%s\n\033[0m" "$1" #&& return
+        [ -n "$4" ] && printf "\33[2K\r\033[1;34m%s - %s\n\033[0m" "$1" "$4" #&& return
     fi
     [ -z "$2" ] && timeout=3000 || timeout="$2" # default timeout is 3 seconds
     if [ "$notify" = "true" ]; then
@@ -498,8 +498,14 @@ EOF
         else
             dep_ch "chafa" || true
             # shellcheck disable=SC2154
-            [ "$TERM_PROGRAM" = "vscode" ] && fmt="-f sixels --margin-bottom 8" || fmt=""
-            [ -n "$chafa_dims" ] && dim="-s $chafa_dims"
+            [ "$TERM_PROGRAM" = "vscode" ] && fmt="-f sixels --margin-bottom 8" || fmt="--margin-bottom 2 --margin-right 2"
+            
+            # Specify the dimensions of the preview window to reduce overlap of images
+            rows=$(tput lines)
+            cols=$(tput cols)
+            preview_width=$((cols * 90 / 100))
+            preview_height=$((rows * 90 / 100))
+            dim="-s ${preview_width}x${preview_height}"
             choice=$(find "$images_cache_dir" -type f -exec basename {} \; | fzf \
                 --bind "shift-right:accept" --expect=shift-left --cycle -i -q "$1" \
                 --preview-window="$preview_window_size" \
@@ -555,7 +561,7 @@ EOF
         # request to get the embed
         embed_link=$(curl -s "https://${base}/ajax/episode/sources/${episode_id}" | $sed -nE "s_.*\"link\":\"([^\"]*)\".*_\1_p")
         if [ -z "$embed_link" ]; then
-            send_notification "Error" "Could not get embed link"
+            send_notification "Could not get embed link"
             exit 1
         fi
     }
@@ -584,7 +590,13 @@ EOF
         provider_link=$(printf "%s" "$parse_embed" | cut -f1)
         source_id=$(printf "%s" "$parse_embed" | cut -f3 | sed -E "s|.*/||")
         json_data=$(curl -s "${provider_link}/embed-1/v2/e-1/getSources?id=${source_id}" -H "X-Requested-With: XMLHttpRequest")
-        [ -n "$json_data" ] && extract_from_json
+        
+        if [ -n "$json_data" ]; then
+            extract_from_json
+        else
+            send_notification "Error" 5000 "" "Could not get json data :< "
+            exit 1
+        fi
     }
 
     ### History ###
@@ -894,7 +906,11 @@ EOF
             get_embed
             [ -z "$embed_link" ] && exit 1
             get_json
-            [ -z "$video_link" ] && exit 1
+            # [ -z "$video_link" ] && {send_notification "Could not get video link"; exit 1;}
+            if [ -z "$video_link" ]; then
+                send_notification "Could not get video link" "5000" "" "Error!"
+                exit 1
+            fi
             if [ "$download" = "true" ]; then
                 if [ "$media_type" = "movie" ]; then
                     if [ "$image_preview" = "true" ]; then
